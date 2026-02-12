@@ -125,6 +125,7 @@ def run_codex(
                 traces_file=workspace_paths.traces_jsonl,
                 agents_md_file=workspace_paths.workspace_dir / "AGENTS.md",
                 agent_output_file=output_file_path,
+                stdout_log=workspace_paths.stdout_log,
                 workspace_dir=workspace_paths.workspace_dir,
                 verbose=verbose,
             )

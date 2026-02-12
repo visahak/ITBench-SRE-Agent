@@ -24,7 +24,7 @@ LITELLM_BASE_URL=<base-url>
 LITELLM_API_KEY=<api-key>
 
 # Kaizen model config
-KAIZEN_TIPS_MODEL=<model-id>              # e.g., openai/gpt-4.1
+KAIZEN_TIPS_MODEL=<model-id>              # e.g., Azure/gpt-4.1
 KAIZEN_CONFLICT_RESOLUTION_MODEL=<model-id>
 KAIZEN_CUSTOM_LLM_PROVIDER=openai         # or openrouter, etc.
 ```
@@ -38,6 +38,13 @@ uv sync   # installs Kaizen from ./Kaizen via [tool.uv.sources] path dep
 ```
 
 > **Note:** `sentence-transformers` (Kaizen dependency) requires a Rust compiler for `tokenizers`. Install via `rustup` if builds fail.
+
+### Config.toml
+
+The MCP server configuration in `zero/zero-config/config.toml` may need adjusting for your environment:
+
+- **`python` → `python3`**: On macOS, the `python` binary may not exist. Change `command = "python"` to `command = "python3"` for both the `offline_incident_analysis` and `kaizen` MCP server entries.
+- **`PYTHONPATH`**: Set `PYTHONPATH` to the full absolute path of the project root (e.g., `/Users/you/path/to/sre-kaizen`) in `[mcp_servers.offline_incident_analysis.env]`.
 
 ### ITBench Snapshots
 
@@ -57,61 +64,95 @@ rm -rf /tmp/outputs/
 
 ## Running Trial 1 (No Guidelines)
 
-Run a scenario with `--collect-traces` so the OTEL trace data is captured for Kaizen:
+Run a scenario with `--collect-traces` and `--verbose` so trace data is captured and Kaizen status is visible:
 
 ```bash
+# Source environment variables
+source .env
+
 # Scenario 2, Trial 1
 uv run zero \
   --workspace /tmp/outputs/2/1 \
   --read-only-dir ITBench-Lite/snapshots/sre/v0.2-B96DF826-4BB2-4B62-97AB-6D84254C53D7/Scenario-2 \
-  --collect-traces
+  --collect-traces --verbose \
+  --prompt-file zero/zero-config/prompts/react_shell_investigation.md \
+  --variable "SNAPSHOT_DIRS=$(pwd)/ITBench-Lite/snapshots/sre/v0.2-B96DF826-4BB2-4B62-97AB-6D84254C53D7/Scenario-2" \
+  -- exec -m "Azure/gpt-4.1"
 
 # Scenario 5, Trial 1
 uv run zero \
   --workspace /tmp/outputs/5/1 \
   --read-only-dir ITBench-Lite/snapshots/sre/v0.2-B96DF826-4BB2-4B62-97AB-6D84254C53D7/Scenario-5 \
-  --collect-traces
+  --collect-traces --verbose \
+  --prompt-file zero/zero-config/prompts/react_shell_investigation.md \
+  --variable "SNAPSHOT_DIRS=$(pwd)/ITBench-Lite/snapshots/sre/v0.2-B96DF826-4BB2-4B62-97AB-6D84254C53D7/Scenario-5" \
+  -- exec -m "Azure/gpt-4.1"
 ```
 
 **What happens:**
 - The agent calls `get_guidelines` in Phase 0 — returns empty (no prior knowledge)
 - The agent investigates using available MCP tools
 - Results are written to `<workspace>/agent_output.json`
-- In the `finally` block, `kaizen_integration.py` parses OTEL traces into OpenAI message format, saves the trajectory to Kaizen, and triggers tip generation
+- In the `finally` block, `kaizen_integration.py` parses the Codex `--json` exec output (`stdout.log`) into OpenAI message format, saves the trajectory to Kaizen, and triggers tip generation
 - Tips are stored in the Milvus vector DB under namespace `sre_scenario_N`
+- With `--verbose`, you'll see Kaizen status output: message count, trajectory storage, and tip generation results (or errors with retry attempts)
 
 ## What Happens After Trial 1
 
-After a successful T1 run with `--collect-traces`, Kaizen's critical reviewer LLM:
+After a successful T1 run, Kaizen's critical reviewer LLM:
 
-1. **Analyzes the trajectory** — Examines the full investigation conversation
-2. **Generates tips** — Identifies blind spots and missed opportunities (e.g., "the agent never examined ConfigMaps")
+1. **Analyzes the trajectory** — Examines the full investigation conversation (typically 50-100 messages including reasoning, tool calls, and results)
+2. **Generates tips** — Identifies blind spots and missed opportunities (e.g., "the agent never examined ConfigMaps"). Retries up to 3 times on transient failures.
 3. **Stores guidelines** — Tips are embedded and stored in Milvus, keyed to the scenario namespace
 
-You can verify guidelines were saved by checking the `kaizen_data/` directory exists and `kaizen.milvus.db` has grown in size.
+With `--verbose` you'll see output like:
+```
+Kaizen: Saving trajectory with 64 messages to namespace 'sre_scenario_5'
+Kaizen: Stored 64 trajectory entities
+Kaizen: Generated and stored 5 guidelines
+```
 
 ## Running Trial 2 (With Guidelines)
 
 Run the same scenario again with a different workspace path (to avoid overwriting T1 output):
 
 ```bash
+# Source environment variables
+source .env
+
 # Scenario 2, Trial 2
 uv run zero \
   --workspace /tmp/outputs/2/2 \
   --read-only-dir ITBench-Lite/snapshots/sre/v0.2-B96DF826-4BB2-4B62-97AB-6D84254C53D7/Scenario-2 \
-  --collect-traces
+  --collect-traces --verbose \
+  --prompt-file zero/zero-config/prompts/react_shell_investigation.md \
+  --variable "SNAPSHOT_DIRS=$(pwd)/ITBench-Lite/snapshots/sre/v0.2-B96DF826-4BB2-4B62-97AB-6D84254C53D7/Scenario-2" \
+  -- exec -m "Azure/gpt-4.1"
 
 # Scenario 5, Trial 2
 uv run zero \
   --workspace /tmp/outputs/5/2 \
   --read-only-dir ITBench-Lite/snapshots/sre/v0.2-B96DF826-4BB2-4B62-97AB-6D84254C53D7/Scenario-5 \
-  --collect-traces
+  --collect-traces --verbose \
+  --prompt-file zero/zero-config/prompts/react_shell_investigation.md \
+  --variable "SNAPSHOT_DIRS=$(pwd)/ITBench-Lite/snapshots/sre/v0.2-B96DF826-4BB2-4B62-97AB-6D84254C53D7/Scenario-5" \
+  -- exec -m "Azure/gpt-4.1"
 ```
 
 **What happens differently:**
 - Phase 0 `get_guidelines` now returns tips from Trial 1 (semantic search matches the incident description)
 - The agent uses these guidelines to inform its investigation strategy
-- For example, a guideline like "Always examine ConfigMaps and feature flags" causes the agent to check `k8s_objects_raw.tsv` — something it may have skipped in T1
+- For example, a guideline like "Actively seek out and document alternative hypotheses" causes the agent to investigate deeper — potentially finding ConfigMap changes it would have missed in T1
+
+## Trajectory Parsing
+
+Kaizen builds the agent trajectory from two possible sources, in priority order:
+
+1. **`stdout.log`** (primary) — The Codex `--json` exec output containing the full conversation: agent reasoning (`agent_message`), MCP tool calls (`mcp_tool_call`), and shell commands (`command_execution`) with their results. Typically produces 50-100 messages.
+2. **`traces.jsonl`** (legacy fallback) — OTEL protobuf log records. As of Codex v0.98, these contain only metadata events (`body: null`) and large protobuf payloads that fail to decode due to version mismatch. Not useful for trajectory extraction.
+3. **`AGENTS.md` + `agent_output.json`** (final fallback) — If neither source produces messages, the prompt and final output are used. Produces only 2 messages.
+
+The `--collect-traces` flag is still recommended as it captures OTEL metadata for potential future use, and ensures `stdout.log` is written to the `traces/` directory.
 
 ## Running Evaluations
 
@@ -121,12 +162,12 @@ Use the ITBench-Evaluations tool (git submodule) to compare agent output against
 cd ITBench-Evaluations
 
 # Evaluate Trial 1
-uv run python -m itbench_evaluations \
+uv run python3 -m itbench_evaluations \
   --ground-truth ../ITBench-Lite/snapshots/sre/v0.2-B96DF826-4BB2-4B62-97AB-6D84254C53D7/Scenario-2/ground_truth.yaml \
   --outputs /tmp/outputs/2/1/agent_output.json
 
 # Evaluate Trial 2
-uv run python -m itbench_evaluations \
+uv run python3 -m itbench_evaluations \
   --ground-truth ../ITBench-Lite/snapshots/sre/v0.2-B96DF826-4BB2-4B62-97AB-6D84254C53D7/Scenario-2/ground_truth.yaml \
   --outputs /tmp/outputs/2/2/agent_output.json
 ```
@@ -158,6 +199,8 @@ Omitting `--collect-traces` prevents trajectory saving but the agent will still 
 
 - **Milvus Lite file lock**: Only one process can access `kaizen.milvus.db` at a time. Run scenarios sequentially, not in parallel.
 - **Namespace isolation**: Guidelines from Scenario-2 won't appear in Scenario-5 queries (different namespaces). Cross-scenario transfer only happens if the Milvus semantic search finds relevant matches.
-- **Trace collection is required**: Without `--collect-traces`, the post-run trajectory saving has no OTEL data to parse. It will fall back to `AGENTS.md` + `agent_output.json`, which produces lower-quality tips.
+- **`--verbose` recommended**: Without `--verbose`, Kaizen tip generation status and errors are silent. Always use `--verbose` to see how many messages were parsed, how many tips were generated, and any retry/failure information.
 - **Stale guidelines**: If you want a completely fresh T1, delete `kaizen_data/kaizen.milvus.db` first. Otherwise, guidelines from previous experiments persist.
 - **LLM provider for tips**: Kaizen tip generation uses its own LLM call (configured via `KAIZEN_TIPS_MODEL`). This is separate from the Codex agent's LLM. Make sure the `LITELLM_*` env vars are set.
+- **`source .env` required**: Environment variables must be loaded before running. The `uv run zero` command does not auto-source `.env`.
+- **Tip generation retries**: If the LLM returns an empty or malformed response, tip generation retries up to 3 times with exponential back-off (2s, 4s). Check `--verbose` output to confirm tips were stored.
