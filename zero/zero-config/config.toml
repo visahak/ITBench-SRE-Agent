@@ -92,16 +92,34 @@ args = [
 #   INSTANA_BASE_URL (your Instana instance URL, e.g., https://example.instana.io)
 #   INSTANA_API_TOKEN (your API token from Instana UI: Settings → API Tokens)
 
+# Kaizen Agentic Memory MCP Server
+# Provides get_guidelines (retrieve past learnings) and save_trajectory tools
+# Namespace and data dir are overridden dynamically per-scenario by Zero
+[mcp_servers.kaizen]
+command = "python"
+args = ["-m", "kaizen.frontend.mcp"]
+
+[mcp_servers.kaizen.env]
+KAIZEN_BACKEND = "milvus"
+KAIZEN_NAMESPACE_ID = "sre_default"
+KAIZEN_URI = "${KAIZEN_URI}"
+KAIZEN_TIPS_MODEL = "${KAIZEN_TIPS_MODEL}"
+KAIZEN_CONFLICT_RESOLUTION_MODEL = "${KAIZEN_CONFLICT_RESOLUTION_MODEL}"
+KAIZEN_CUSTOM_LLM_PROVIDER = "${KAIZEN_CUSTOM_LLM_PROVIDER}"
+OPENAI_API_KEY = "${OPENAI_API_KEY}"
+OPENAI_API_BASE = "${OPENAI_API_BASE}"
+FASTMCP_NO_UI = "1"
+NO_COLOR = "1"
+
 # ============================================================================
-# Model Provider - Local LiteLLM Proxy
+# Model Provider - Private LiteLLM Proxy
 # ============================================================================
-# LiteLLM routes to OpenRouter (o3-mini, claude, gemini, etc.)
-# Run: uv run litellm --config config.yaml
+# Routes to IBM private LiteLLM proxy for model access
 
 [model_providers.litellm]
 name = "LiteLLM Proxy"
-base_url = "http://localhost:4000"
-# env_key = "DUMMY_KEY_NEED_NOT_BE_UPDATED"
-wire_api = "chat"
+base_url = "${LITELLM_BASE_URL}"
+env_key = "LITELLM_API_KEY"
+wire_api = "responses"
 max_output_tokens = 16384
 

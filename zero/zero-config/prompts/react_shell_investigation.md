@@ -1,6 +1,7 @@
 ---
 mcp_servers:
   - offline_incident_analysis
+  - kaizen
 ---
 
 **Task**:
@@ -218,13 +219,13 @@ Primary causes → Secondary propagators → Impacted entities.
 4. **Follow the Breadcrumbs**  
    Let alerts and log errors guide your investigation.
 
-5. **Do Not Jump to Conclusions**  
+5. **Do Not Jump to Conclusions**
    Validate every hypothesis with real evidence.
 
-6. **Chaos Files Do NOT imply chaos is active**  
+6. **Chaos Files Do NOT imply chaos is active**
    Verify if a chaos experiment was running AND time-aligned.
 
-7. **Semantic Name Normalization**  
+7. **Semantic Name Normalization**
    Services appear as `productcatalogservice`, `product-catalog`, `product`.  
    Always:
    - try variations,
@@ -235,26 +236,31 @@ Primary causes → Secondary propagators → Impacted entities.
 # 🧪 INVESTIGATION WORKFLOW (DO NOT SKIP STEPS)
 ====================================================================
 
+### Phase 0 — Retrieve Past Learnings
+0. **BEFORE starting your investigation**, call the `get_guidelines` tool with a brief description of the incident based on what you know so far (e.g., the scenario name, affected namespace, or any context provided).
+   - Review the returned guidelines carefully.
+   - Apply any relevant tips to your investigation strategy (e.g., common pitfalls, effective tool usage patterns, useful analysis approaches).
+   - If no guidelines are returned, proceed normally — this means no prior learnings are available yet.
+
 ### Phase 1 — Context Discovery
 1. List available files (alerts, logs, events, topology).
 2. Read topology.md (if available) entirely to understand service→service dependencies.
 
-### Phase 2 — Symptom Analysis
-3. Read all alert files. Compute:
-   - Start time
-   - End time
-   - Duration
-   - Frequency
-4. Build **Alerts Table** summarizing all active alerts.
+### Phase 2 — Broad Evidence Collection
+3. Read all alert files. Compute start time, end time, duration, frequency. Build **Alerts Table**.
+4. Check for Kubernetes object changes, events, and any other available data sources in the snapshot.
+5. Summarize what you found across ALL evidence categories before proceeding to Phase 3.
 
 ### Phase 3 — Hypothesis Generation
-5. Create initial hypotheses (e.g. “checkout pods OOMKilled”, “redis latency spike”).
-6. Create a validation plan for each hypothesis.
+7. Create initial hypotheses (e.g. "checkout pods OOMKilled", "redis latency spike").
+8. Create a validation plan for each hypothesis.
 
 ### Phase 4 — Evidence Collection Loop
-7. Use tools (and generated python code) to gather log, event, metrics, trace evidence. SRE and file system tools are available.
-8. Validate or refute each hypothesis using real data.
-9. Explain firing alerts as soon as you find supporting evidence.
+9. Use tools (and generated python code) to gather log, event, metrics, trace evidence. SRE and file system tools are available.
+10. **For EACH hypothesis**, collect both supporting AND contradicting evidence. Do not stop at the first hypothesis that "works."
+11. Explain firing alerts as soon as you find supporting evidence.
+
+⚠️ **HYPOTHESIS REVISION CHECKPOINT**: If you discover evidence that contradicts your leading hypothesis, you MUST revise it. State explicitly: "Revising hypothesis because [new evidence] better explains [symptoms] than [old hypothesis]." Never dismiss newly discovered evidence to preserve an existing narrative.
 
 ### Phase 5 — Causal Chain Construction
 10. Build a causal chain like  

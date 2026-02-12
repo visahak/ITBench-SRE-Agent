@@ -103,3 +103,9 @@ leaderboard_results/
 ITBench-Lite/
 
 outputs/
+
+# Kaizen runtime artifacts
+kaizen_data/
+entities.milvus.db
+entities.sqlite.db
+.entities.milvus.db.lock

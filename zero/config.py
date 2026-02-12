@@ -294,6 +294,9 @@ def _generate_config(
     # Substitute environment variables in MCP server configs
     content = _substitute_env_vars(content)
 
+    # Override Kaizen namespace and data dir based on workspace path
+    content = _configure_kaizen(content, paths.workspace_dir, verbose=verbose)
+
     # Add trust entry for workspace
     content = _add_trust_entry(content, ws_str)
 
@@ -344,6 +347,14 @@ def _substitute_env_vars(content: str) -> str:
         "KUBECONFIG": "",  # Empty means MCP will use default ~/.kube/config
         "INSTANA_BASE_URL": "",  # Instana instance URL
         "INSTANA_API_TOKEN": "",  # Instana API token
+        "LITELLM_BASE_URL": "http://localhost:4000",  # Model provider proxy URL
+        "LITELLM_API_KEY": "",  # Model provider proxy API key
+        "KAIZEN_TIPS_MODEL": "gpt-4o",  # Kaizen tip generation model
+        "KAIZEN_CONFLICT_RESOLUTION_MODEL": "gpt-4o",  # Kaizen conflict resolution model
+        "KAIZEN_CUSTOM_LLM_PROVIDER": "",  # Kaizen custom LLM provider
+        "OPENAI_API_KEY": "",  # OpenAI API key (used by Kaizen/litellm)
+        "OPENAI_API_BASE": "",  # OpenAI API base URL override
+        "KAIZEN_URI": "kaizen.milvus.db",  # Milvus Lite DB file path (overridden by _configure_kaizen)
     }
 
     def replace_env_var(match):
@@ -351,6 +362,75 @@ def _substitute_env_vars(content: str) -> str:
         return os.environ.get(var_name, defaults.get(var_name, ""))
 
     content = re.sub(r"\$\{([A-Z_]+)\}", replace_env_var, content)
+
+    return content
+
+
+def _derive_kaizen_namespace(workspace_dir: Path) -> str:
+    """Derive a Kaizen namespace ID from the workspace path.
+
+    Attempts to extract a scenario identifier from the path.
+    E.g., /tmp/outputs/scenario-2/trial-1 → "sre_scenario_2"
+          /tmp/outputs/2/1              → "sre_scenario_2"
+          /tmp/work                     → "sre_default"
+
+    Note: Milvus collection names only allow letters, numbers, and underscores.
+    """
+    parts = workspace_dir.parts
+    for i, part in enumerate(parts):
+        # Match "Scenario-N", "scenario-N", or bare number
+        lower = part.lower()
+        if lower.startswith("scenario"):
+            # Replace hyphens with underscores for Milvus compatibility
+            sanitized = lower.replace("-", "_")
+            return f"sre_{sanitized}"
+        # Check if it's a bare number (common in ITBench: .../2/1/)
+        if part.isdigit() and i > 0:
+            return f"sre_scenario_{part}"
+    return "sre_default"
+
+
+def _configure_kaizen(content: str, workspace_dir: Path, verbose: bool = False) -> str:
+    """Override Kaizen MCP server env vars for per-scenario namespace and stable data/URI dir.
+
+    Sets KAIZEN_NAMESPACE_ID based on workspace path and KAIZEN_DATA_DIR/KAIZEN_URI to a
+    project-level location so data persists across runs.
+    """
+    namespace_id = _derive_kaizen_namespace(workspace_dir)
+
+    # Use a stable kaizen_data dir at the project root (next to pyproject.toml)
+    # so guidelines persist across different workspace runs
+    project_root = Path(__file__).parent.parent
+    kaizen_data_dir = str(project_root / "kaizen_data")
+    kaizen_milvus_uri = str(project_root / "kaizen_data" / "kaizen.milvus.db")
+
+    # Ensure kaizen_data directory exists (needed for Milvus Lite DB file)
+    (project_root / "kaizen_data").mkdir(parents=True, exist_ok=True)
+
+    # Replace the KAIZEN_NAMESPACE_ID value in the config
+    content = re.sub(
+        r'(KAIZEN_NAMESPACE_ID\s*=\s*)"[^"]*"',
+        rf'\g<1>"{namespace_id}"',
+        content,
+    )
+
+    # Replace KAIZEN_DATA_DIR if present (filesystem backend)
+    content = re.sub(
+        r'(KAIZEN_DATA_DIR\s*=\s*)"[^"]*"',
+        rf'\g<1>"{kaizen_data_dir}"',
+        content,
+    )
+
+    # Replace KAIZEN_URI if present (Milvus backend - Milvus Lite uses a local file)
+    content = re.sub(
+        r'(KAIZEN_URI\s*=\s*)"[^"]*"',
+        rf'\g<1>"{kaizen_milvus_uri}"',
+        content,
+    )
+
+    if verbose:
+        print(f"Kaizen namespace: {namespace_id}")
+        print(f"Kaizen data dir: {kaizen_data_dir}")
 
     return content
 

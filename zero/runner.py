@@ -102,7 +102,7 @@ def run_codex(
 
     # Run Codex (with retry logic for exec mode)
     try:
-        return _run_with_retry(
+        exit_code = _run_with_retry(
             codex_args=codex_args,
             env=env,
             cwd=cwd,
@@ -112,9 +112,24 @@ def run_codex(
             output_file_path=output_file_path,
             max_retries=max_retries,
         )
+        return exit_code
     finally:
         if collector:
             collector.stop()
+
+        # Save trajectory to Kaizen (best-effort, never fail the run)
+        try:
+            from .kaizen_integration import save_trajectory_to_kaizen
+
+            save_trajectory_to_kaizen(
+                traces_file=workspace_paths.traces_jsonl,
+                agents_md_file=workspace_paths.workspace_dir / "AGENTS.md",
+                agent_output_file=output_file_path,
+                workspace_dir=workspace_paths.workspace_dir,
+                verbose=verbose,
+            )
+        except Exception as e:
+            print(f"Warning: Failed to save trajectory to Kaizen: {e}", file=sys.stderr)
 
 
 def _process_prompt_to_agents_md(
